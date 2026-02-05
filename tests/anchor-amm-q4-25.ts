@@ -2,6 +2,8 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { AnchorAmmQ425 } from "../target/types/anchor_amm_q4_25";
 import { getAssociatedTokenAddressSync, createAssociatedTokenAccountInstruction, createMint, mintTo, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { expect } from "chai";
+
 
 describe("anchor-amm-q4-25", () => {
   const provider = anchor.AnchorProvider.env();
@@ -9,7 +11,8 @@ describe("anchor-amm-q4-25", () => {
   anchor.setProvider(provider);
 
   const program = anchor.workspace.anchorAmmQ425 as Program<AnchorAmmQ425>;
-  const initializer = provider.wallet.publicKey;
+  const initializer = anchor.web3.Keypair.generate();
+
   const user = anchor.web3.Keypair.generate();
   const minter = provider.wallet.publicKey;
   let configPda = provider.wallet.publicKey;
@@ -33,6 +36,7 @@ describe("anchor-amm-q4-25", () => {
 
   before(async () => {
     await provider.connection.requestAirdrop(user.publicKey, 10 * anchor.web3.LAMPORTS_PER_SOL);
+    await provider.connection.requestAirdrop(initializer.publicKey, 10 * anchor.web3.LAMPORTS_PER_SOL);
     await new Promise(resolve => setTimeout(resolve, 1000));
 
     mintX = await createMint(provider.connection, provider.wallet.payer, minter, null, 6);
@@ -72,7 +76,7 @@ describe("anchor-amm-q4-25", () => {
       fee,
       configPda,
     ).accountsStrict({
-      initializer: initializer,
+      initializer: initializer.publicKey,
       mintX: mintX,
       mintY: mintY,
       mintLp: mintLp,
@@ -82,7 +86,22 @@ describe("anchor-amm-q4-25", () => {
       tokenProgram: TOKEN_PROGRAM_ID,
       associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
       systemProgram: anchor.web3.SystemProgram.programId,
-    }).rpc();
+    })
+    .signers([initializer])
+    .rpc();
+  
     console.log("Your transaction signature", tx);
+
+    const configAccount = await program.account.config.fetch(configPda);
+    console.log(configAccount);
+
+    expect(configAccount.authority.toBase58()).to.equal(configPda.toBase58());
+    expect(configAccount.mintX.toBase58()).to.equal(mintX.toBase58());
+    expect(configAccount.mintY.toBase58()).to.equal(mintY.toBase58());
+    expect(configAccount.fee).to.equal(fee);
+    expect(configAccount.locked).to.equal(false);
+    expect(configAccount.configBump).to.equal(configBump);
+    expect(configAccount.lpBump).to.equal(mintLpBump);
+    expect(configAccount.seed.toNumber()).to.equal(seed.toNumber());
   });
 });
