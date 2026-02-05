@@ -20,6 +20,7 @@ pub struct Initialize<'info> {
         bump,
         mint::decimals = 6,
         mint::authority = config,
+        mint::token_program = token_program,
     )]
     pub mint_lp: Account<'info, Mint>,
     #[account(
@@ -27,6 +28,7 @@ pub struct Initialize<'info> {
         payer = initializer,
         associated_token::mint = mint_x,
         associated_token::authority = config,
+        associated_token::token_program = token_program,
     )]
     pub vault_x: Account<'info, TokenAccount>,
     #[account(
@@ -34,6 +36,7 @@ pub struct Initialize<'info> {
         payer = initializer,
         associated_token::mint = mint_y,
         associated_token::authority = config,
+        associated_token::token_program = token_program,
     )]
     pub vault_y: Account<'info, TokenAccount>,
     #[account(

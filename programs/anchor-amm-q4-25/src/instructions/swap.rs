@@ -24,30 +24,36 @@ pub struct Swap<'info> {
         mut,
         seeds = [b"lp", config.key().as_ref()],
         bump = config.lp_bump,
+        mint::authority = config,
+        mint::token_program = token_program,
     )]
     pub mint_lp: Box<Account<'info, Mint>>,
     #[account(
         mut,
         associated_token::mint = mint_x,
         associated_token::authority = config,
+        associated_token::token_program = token_program,
     )]
     pub vault_x: Box<Account<'info, TokenAccount>>,
     #[account(
         mut,
         associated_token::mint = mint_y,
         associated_token::authority = config,
+        associated_token::token_program = token_program,
     )]
     pub vault_y: Box<Account<'info, TokenAccount>>,
     #[account(
         mut,
         associated_token::mint = mint_x,
         associated_token::authority = user,
+        associated_token::token_program = token_program,
     )]
     pub user_x: Box<Account<'info, TokenAccount>>,
     #[account(
         mut,
         associated_token::mint = mint_y,
         associated_token::authority = user,
+        associated_token::token_program = token_program,
     )]
     pub user_y: Box<Account<'info, TokenAccount>>,
     #[account(
@@ -55,6 +61,7 @@ pub struct Swap<'info> {
         payer = user,
         associated_token::mint = mint_lp,
         associated_token::authority = user,
+        associated_token::token_program = token_program,
     )]
     pub user_lp: Box<Account<'info, TokenAccount>>,
     pub token_program: Program<'info, Token>,

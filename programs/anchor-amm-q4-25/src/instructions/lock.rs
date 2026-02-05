@@ -5,6 +5,7 @@ use crate::{errors::AmmError, state::Config};
 #[derive(Accounts)]
 pub struct Lock<'info> {
     #[account(
+        constraint = config.authority.is_some() @ AmmError::NoAuthoritySet,
         constraint = authority.key() == config.authority.unwrap() @ AmmError::InvalidAuthority
     )]
     pub authority: Signer<'info>,
