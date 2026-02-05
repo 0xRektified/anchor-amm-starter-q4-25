@@ -57,6 +57,8 @@ impl<'info> Initialize<'info> {
         authority: Option<Pubkey>,
         bumps: InitializeBumps,
     ) -> Result<()> {
+        require!(fee <= 10000, crate::errors::AmmError::InvalidFee);
+
         self.config.set_inner(Config {
             seed,
             authority,

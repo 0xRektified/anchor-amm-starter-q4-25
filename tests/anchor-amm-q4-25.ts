@@ -88,7 +88,7 @@ describe("anchor-amm-q4-25", () => {
       await program.methods.initialize(
         seed,
         fee,
-        configPda,
+        provider.wallet.publicKey,
       ).accountsStrict({
         initializer: initializer.publicKey,
         mintX: mintX,
@@ -105,7 +105,7 @@ describe("anchor-amm-q4-25", () => {
       .rpc();
     
       const configAccount = await program.account.config.fetch(configPda);
-      expect(configAccount.authority.toBase58()).to.equal(configPda.toBase58());
+      expect(configAccount.authority.toBase58()).to.equal(provider.wallet.publicKey.toBase58());
       expect(configAccount.mintX.toBase58()).to.equal(mintX.toBase58());
       expect(configAccount.mintY.toBase58()).to.equal(mintY.toBase58());
       expect(configAccount.fee).to.equal(fee);
@@ -369,7 +369,7 @@ describe("anchor-amm-q4-25", () => {
       const minX = vaultXBefore / 2;
       const minY = vaultYBefore / 2;
 
-      const tx = await program.methods.withdraw(
+      await program.methods.withdraw(
         new anchor.BN(userLpBalanceBefore * 1e6 / 2),
         new anchor.BN(minX * 1e6),
         new anchor.BN(minY * 1e6),
@@ -521,5 +521,137 @@ describe("anchor-amm-q4-25", () => {
       const vaultYAfter = (await provider.connection.getTokenAccountBalance(vaultY)).value.uiAmount;
       expect(vaultYAfter).to.equal(vaultYBefore);
     });
-  })
+  });
+
+  describe("Lock Pool", () => {
+    it("Authority can lock the pool", async () => {
+      await program.methods.lock(true)
+        .accountsStrict({
+          authority: provider.wallet.publicKey,
+          config: configPda,
+        })
+        .rpc();
+
+      const configAfter = await program.account.config.fetch(configPda);
+      expect(configAfter.locked).to.equal(true);
+      console.log("✓ Pool locked successfully");
+    });
+
+    it("Fails to deposit when pool is locked", async () => {
+      const depositAmount = 10;
+      await mintTo(provider.connection, provider.wallet.payer, mintX, userX, minter, depositAmount * 1e6);
+      await mintTo(provider.connection, provider.wallet.payer, mintY, userY, minter, depositAmount * 1e6);
+
+      try {
+        await program.methods.deposit(
+          new anchor.BN(5 * 1e6),
+          new anchor.BN(depositAmount * 1e6),
+          new anchor.BN(depositAmount * 1e6),
+        ).accountsStrict({
+          user: user.publicKey,
+          mintX: mintX,
+          mintY: mintY,
+          config: configPda,
+          mintLp: mintLp,
+          vaultX: vaultX,
+          vaultY: vaultY,
+          userX: userX,
+          userY: userY,
+          userLp: userLp,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([user])
+        .rpc();
+
+        assert.fail("Should have failed with PoolLocked");
+      } catch (error) {
+        expect(error.message).to.include("PoolLocked");
+        console.log("✓ Correctly failed with PoolLocked");
+      }
+    });
+
+    it("Authority can unlock the pool", async () => {
+      await program.methods.lock(false)
+        .accountsStrict({
+          authority: provider.wallet.publicKey,
+          config: configPda,
+        })
+        .rpc();
+
+      const configAfter = await program.account.config.fetch(configPda);
+      expect(configAfter.locked).to.equal(false);
+      console.log("✓ Pool unlocked successfully");
+    });
+
+    it("Non-authority cannot lock the pool", async () => {
+      const nonAuthority = anchor.web3.Keypair.generate();
+      await provider.connection.requestAirdrop(nonAuthority.publicKey, 1 * anchor.web3.LAMPORTS_PER_SOL);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      try {
+        await program.methods.lock(true)
+          .accountsStrict({
+            authority: nonAuthority.publicKey,
+            config: configPda,
+          })
+          .signers([nonAuthority])
+          .rpc();
+
+        assert.fail("Should have failed with InvalidAuthority");
+      } catch (error) {
+        expect(error.message).to.satisfy((msg: string) =>
+          msg.includes("InvalidAuthority") || msg.includes("ConstraintRaw")
+        );
+        console.log("✓ Correctly failed when non-authority tried to lock");
+      }
+    });
+  });
+
+  describe("Fee Validation", () => {
+    it("Fails to initialize with fee > 100%", async () => {
+      const badFee = 10001;
+      const newSeed = new anchor.BN(9999);
+
+      const [badConfigPda] = anchor.web3.PublicKey.findProgramAddressSync(
+        [Buffer.from("config"), newSeed.toArrayLike(Buffer, "le", 8)],
+        program.programId
+      );
+
+      const [badMintLp] = anchor.web3.PublicKey.findProgramAddressSync(
+        [Buffer.from("lp"), badConfigPda.toBuffer()],
+        program.programId
+      );
+
+      const badVaultX = getAssociatedTokenAddressSync(mintX, badConfigPda, true);
+      const badVaultY = getAssociatedTokenAddressSync(mintY, badConfigPda, true);
+
+      try {
+        await program.methods.initialize(
+          newSeed,
+          badFee,
+          badConfigPda,
+        ).accountsStrict({
+          initializer: initializer.publicKey,
+          mintX: mintX,
+          mintY: mintY,
+          mintLp: badMintLp,
+          vaultX: badVaultX,
+          vaultY: badVaultY,
+          config: badConfigPda,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([initializer])
+        .rpc();
+
+        assert.fail("Should have failed with InvalidFee");
+      } catch (error) {
+        expect(error.message).to.include("InvalidFee");
+        console.log("✓ Correctly rejected fee > 100%");
+      }
+    });
+  });
 });
