@@ -237,7 +237,7 @@ describe("anchor-amm-q4-25", () => {
       const lpSupplyAfter = (await provider.connection.getTokenSupply(mintLp)).value.uiAmount;
       expect(lpSupplyAfter).to.equal(150);  // 100 + 50
 
-      console.log("✓ Vaults: X=300, Y=300 | LP Supply: 150");
+      console.log("Vaults: X=300, Y=300 | LP Supply: 150");
 
     });
     
@@ -281,11 +281,11 @@ describe("anchor-amm-q4-25", () => {
       }
 
       const vaultXAfter = (await provider.connection.getTokenAccountBalance(vaultX)).value.uiAmount;
-      expect(vaultXAfter).to.equal(300);  // Unchanged
+      expect(vaultXAfter).to.equal(300);
       const vaultYAfter = (await provider.connection.getTokenAccountBalance(vaultY)).value.uiAmount;
-      expect(vaultYAfter).to.equal(300);  // Unchanged
+      expect(vaultYAfter).to.equal(300);
       const lpSupplyAfter = (await provider.connection.getTokenSupply(mintLp)).value.uiAmount;
-      expect(lpSupplyAfter).to.equal(150);  // Unchanged
+      expect(lpSupplyAfter).to.equal(150);
     });
   });
 
@@ -354,7 +354,172 @@ describe("anchor-amm-q4-25", () => {
       const vaultYAfter = (await provider.connection.getTokenAccountBalance(vaultY)).value.uiAmount;
       expect(vaultYAfter).to.be.approximately(expectedVaultYAfter, 0.1);
 
-      console.log(`✓ Swap successful: Exchanged ${amountX} X for ~${yOutputAfterFee.toFixed(2)} Y (${feeRate * 100}% fee applied to output)`);
+      console.log(`Swap successful: Exchanged ${amountX} X for ~${yOutputAfterFee.toFixed(2)} Y (${feeRate * 100}% fee applied to output)`);
     })
+  })
+
+  describe("Withdraw", () => {
+    it("User withdraw partial LP", async () => {
+
+      const userLpBalanceBefore = (await provider.connection.getTokenAccountBalance(userLp)).value.uiAmount;
+
+      const vaultXBefore = (await provider.connection.getTokenAccountBalance(vaultX)).value.uiAmount;
+
+      const vaultYBefore = (await provider.connection.getTokenAccountBalance(vaultY)).value.uiAmount;
+      const minX = vaultXBefore / 2;
+      const minY = vaultYBefore / 2;
+
+      const tx = await program.methods.withdraw(
+        new anchor.BN(userLpBalanceBefore * 1e6 / 2),
+        new anchor.BN(minX * 1e6),
+        new anchor.BN(minY * 1e6),
+      ).accountsStrict({
+        user: user.publicKey,
+        mintX: mintX,
+        mintY: mintY,
+        config: configPda,
+        mintLp: mintLp,
+        vaultX: vaultX,
+        vaultY: vaultY,
+        userX: userX,
+        userY: userY,
+        userLp: userLp,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .signers([user])
+      .rpc();
+
+      const resultLp = userLpBalanceBefore / 2;
+
+      const userLpBalanceAfter = (await provider.connection.getTokenAccountBalance(userLp)).value.uiAmount;
+      expect(userLpBalanceAfter).to.equal(resultLp);
+      const lpSupplyAfter = (await provider.connection.getTokenSupply(mintLp)).value.uiAmount;
+      expect(lpSupplyAfter).to.equal(resultLp);
+
+      const vaultXAfter = (await provider.connection.getTokenAccountBalance(vaultX)).value.uiAmount;
+      expect(vaultXAfter).to.be.approximately(vaultXBefore / 2, 0.0001);
+
+      const vaultYAfter = (await provider.connection.getTokenAccountBalance(vaultY)).value.uiAmount;
+      expect(vaultYAfter).to.be.approximately(vaultYBefore / 2, 0.0001);
+    });
+
+    it("User withdraws all remaining liquidity", async () => {
+      const userLpBalanceBefore = (await provider.connection.getTokenAccountBalance(userLp)).value.uiAmount;
+      const vaultXBefore = (await provider.connection.getTokenAccountBalance(vaultX)).value.uiAmount;
+      const vaultYBefore = (await provider.connection.getTokenAccountBalance(vaultY)).value.uiAmount;
+      const lpSupplyBefore = (await provider.connection.getTokenSupply(mintLp)).value.uiAmount;
+
+      expect(userLpBalanceBefore).to.equal(lpSupplyBefore);
+
+      const minX = 0;
+      const minY = 0;
+
+      await program.methods.withdraw(
+        new anchor.BN(userLpBalanceBefore * 1e6),
+        new anchor.BN(minX),
+        new anchor.BN(minY),
+      ).accountsStrict({
+        user: user.publicKey,
+        mintX: mintX,
+        mintY: mintY,
+        config: configPda,
+        mintLp: mintLp,
+        vaultX: vaultX,
+        vaultY: vaultY,
+        userX: userX,
+        userY: userY,
+        userLp: userLp,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .signers([user])
+      .rpc();
+
+      const userLpBalanceAfter = (await provider.connection.getTokenAccountBalance(userLp)).value.uiAmount;
+      expect(userLpBalanceAfter).to.equal(0);
+      const lpSupplyAfter = (await provider.connection.getTokenSupply(mintLp)).value.uiAmount;
+      expect(lpSupplyAfter).to.equal(0);
+
+      const vaultXAfter = (await provider.connection.getTokenAccountBalance(vaultX)).value.uiAmount;
+      expect(vaultXAfter).to.be.approximately(0, 0.0001);
+      const vaultYAfter = (await provider.connection.getTokenAccountBalance(vaultY)).value.uiAmount;
+      expect(vaultYAfter).to.be.approximately(0, 0.0001);
+
+      console.log(`All liquidity withdrawn: Burned ${userLpBalanceBefore} LP, received ~${vaultXBefore} X and ~${vaultYBefore} Y`);
+    });
+
+    it("Fails when trying to withdraw more than available (slippage)", async () => {
+      const depositAmount = 100;
+      await mintTo(provider.connection, provider.wallet.payer, mintX, userX, minter, depositAmount * 1e6);
+      await mintTo(provider.connection, provider.wallet.payer, mintY, userY, minter, depositAmount * 1e6);
+
+      await program.methods.deposit(
+        new anchor.BN(50 * 1e6),
+        new anchor.BN(depositAmount * 1e6),
+        new anchor.BN(depositAmount * 1e6),
+      ).accountsStrict({
+        user: user.publicKey,
+        mintX: mintX,
+        mintY: mintY,
+        config: configPda,
+        mintLp: mintLp,
+        vaultX: vaultX,
+        vaultY: vaultY,
+        userX: userX,
+        userY: userY,
+        userLp: userLp,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .signers([user])
+      .rpc();
+
+      const userLpBalance = (await provider.connection.getTokenAccountBalance(userLp)).value.uiAmount;
+      const vaultXBefore = (await provider.connection.getTokenAccountBalance(vaultX)).value.uiAmount;
+      const vaultYBefore = (await provider.connection.getTokenAccountBalance(vaultY)).value.uiAmount;
+
+      const minX = vaultXBefore * 10;
+      const minY = vaultYBefore * 10;
+
+      try {
+        await program.methods.withdraw(
+          new anchor.BN(userLpBalance * 1e6),
+          new anchor.BN(minX * 1e6),
+          new anchor.BN(minY * 1e6),
+        ).accountsStrict({
+          user: user.publicKey,
+          mintX: mintX,
+          mintY: mintY,
+          config: configPda,
+          mintLp: mintLp,
+          vaultX: vaultX,
+          vaultY: vaultY,
+          userX: userX,
+          userY: userY,
+          userLp: userLp,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([user])
+        .rpc();
+
+        assert.fail("Should have failed with slippage error");
+      } catch (error) {
+        expect(error.message).to.satisfy((msg: string) =>
+          msg.includes("Slippage") || msg.includes("Error")
+        );
+        console.log("Correctly failed when requesting more than available");
+      }
+
+      const vaultXAfter = (await provider.connection.getTokenAccountBalance(vaultX)).value.uiAmount;
+      expect(vaultXAfter).to.equal(vaultXBefore);
+      const vaultYAfter = (await provider.connection.getTokenAccountBalance(vaultY)).value.uiAmount;
+      expect(vaultYAfter).to.equal(vaultYBefore);
+    });
   })
 });
