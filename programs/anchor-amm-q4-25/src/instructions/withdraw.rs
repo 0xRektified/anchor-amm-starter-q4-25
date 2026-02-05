@@ -69,15 +69,61 @@ impl<'info> Withdraw<'info> {
         min_x: u64,  // Minimum amount of token X that the user wants to receive
         min_y: u64,  // Minimum amount of token Y that the user wants to receive
     ) -> Result<()> {
+        require!(self.config.locked == false, AmmError::PoolLocked);
+        require!(amount != 0, AmmError::InvalidAmount);
+        
+        let mut c = ConstantProduct::init(
+            self.vault_x.amount,
+            self.vault_y.amount,
+            self.mint_lp.supply,
+            self.config.fee,
+            Some(6),
+        ).unwrap();
+        let res = c.withdraw_liquidity(amount, min_x, min_y).unwrap();
+        self.withdraw_tokens(true, res.withdraw_x)?;
+        self.withdraw_tokens(false, res.withdraw_y)?;
+        self.burn_lp_tokens(res.burn_l)?;
         Ok(())
     }
 
     pub fn withdraw_tokens(&self, is_x: bool, amount: u64) -> Result<()> {
-        Ok(())
+        let (from, to) = match is_x {
+            true => (
+                self.vault_x.to_account_info(),
+                self.user_x.to_account_info(),
+            ),
+            false => (
+                self.vault_y.to_account_info(),
+                self.user_y.to_account_info(),
+            ),
+        };
 
+        let cpi_program = self.token_program.to_account_info();
+
+        let cpi_accounts = Transfer {
+            from,
+            to,
+            authority: self.config.to_account_info(),
+        };
+        let signer_seeds: &[&[&[u8]]] = &[&[
+            b"config",
+            &self.config.seed.to_le_bytes(),
+            &[self.config.config_bump],
+        ]];
+        let ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer_seeds);
+        transfer(ctx, amount)
     }
 
     pub fn burn_lp_tokens(&self, amount: u64) -> Result<()> {
-        Ok(())
+        let accounts = Burn{
+            mint: self.mint_lp.to_account_info(),
+            from: self.user_lp.to_account_info(),
+            authority: self.user.to_account_info(),
+        };
+        let cpi_context = CpiContext::new(
+            self.token_program.to_account_info(),
+            accounts,
+        );
+        burn(cpi_context, amount)
     }
 }
