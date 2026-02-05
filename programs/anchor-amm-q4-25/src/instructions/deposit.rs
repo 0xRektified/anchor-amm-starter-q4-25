@@ -78,19 +78,19 @@ impl<'info> Deposit<'info> {
         {
             true => (max_x, max_y),
             false => {
-                let amounts = ConstantProduct::xy_deposit_amounts_from_l(
+                let mut c = ConstantProduct::init(
                     self.vault_x.amount,
                     self.vault_y.amount,
                     self.mint_lp.supply,
-                    amount,
-                    6,
+                    self.config.fee,
+                    Some(6),
                 )
-                .unwrap();
-                (amounts.x, amounts.y)
+                .map_err(|e| AmmError::from(e))?;
+                let res = c.deposit_liquidity(amount, max_x, max_y)
+                    .map_err(|e| AmmError::from(e))?;
+                (res.deposit_x, res.deposit_y)
             }
         };
-
-        require!(x <= max_x && y <= max_y, AmmError::SlippageExceeded);
 
         // deposit token x
         self.deposit_tokens(true, x)?;

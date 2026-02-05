@@ -78,8 +78,10 @@ impl<'info> Withdraw<'info> {
             self.mint_lp.supply,
             self.config.fee,
             Some(6),
-        ).unwrap();
-        let res = c.withdraw_liquidity(amount, min_x, min_y).unwrap();
+        )
+        .map_err(|e| AmmError::from(e))?;
+        let res = c.withdraw_liquidity(amount, min_x, min_y)
+            .map_err(|e| AmmError::from(e))?;
         self.withdraw_tokens(true, res.withdraw_x)?;
         self.withdraw_tokens(false, res.withdraw_y)?;
         self.burn_lp_tokens(res.burn_l)?;

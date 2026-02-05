@@ -73,12 +73,14 @@ impl<'info> Swap<'info> {
             self.mint_lp.supply,
             self.config.fee,
             Some(6),
-        ).unwrap();
+        )
+        .map_err(|e| AmmError::from(e))?;
         let liquidity_pair = match is_x {
             true => LiquidityPair::X,
             false => LiquidityPair::Y,
         };
-        let res = c.swap(liquidity_pair, amount, min).unwrap();
+        let res = c.swap(liquidity_pair, amount, min)
+            .map_err(|e| AmmError::from(e))?;
 
         self.deposit_tokens(is_x, res.deposit)?;
         self.withdraw_tokens(!is_x, res.withdraw)?;
