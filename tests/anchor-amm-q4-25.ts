@@ -14,6 +14,8 @@ describe("anchor-amm-q4-25", () => {
   const initializer = anchor.web3.Keypair.generate();
 
   const user = anchor.web3.Keypair.generate();
+  let userLpBump: number;
+  
   const minter = provider.wallet.publicKey;
   let configPda = provider.wallet.publicKey;
   let configBump: number;
@@ -24,6 +26,7 @@ describe("anchor-amm-q4-25", () => {
   let mintX: anchor.web3.PublicKey;
   let mintY: anchor.web3.PublicKey;
 
+  let userLp: anchor.web3.PublicKey;
   let userX: anchor.web3.PublicKey;
   let userY: anchor.web3.PublicKey;
 
@@ -64,44 +67,100 @@ describe("anchor-amm-q4-25", () => {
       [Buffer.from("lp"), configPda.toBuffer()],
       program.programId
     );
-
+    userLp = getAssociatedTokenAddressSync(mintLp, user.publicKey);
     vaultX = getAssociatedTokenAddressSync(mintX, configPda, true);
     vaultY = getAssociatedTokenAddressSync(mintY, configPda, true);
   })
 
-  it("Is initialized!", async () => {
-    // Add your test here.
-    const tx = await program.methods.initialize(
-      seed,
-      fee,
-      configPda,
-    ).accountsStrict({
-      initializer: initializer.publicKey,
-      mintX: mintX,
-      mintY: mintY,
-      mintLp: mintLp,
-      vaultX: vaultX,
-      vaultY: vaultY,
-      config: configPda,
-      tokenProgram: TOKEN_PROGRAM_ID,
-      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-      systemProgram: anchor.web3.SystemProgram.programId,
-    })
-    .signers([initializer])
-    .rpc();
+  describe("Initialize", () => {
+    it("Is initialized!", async () => {
+      // Add your test here.
+      const tx = await program.methods.initialize(
+        seed,
+        fee,
+        configPda,
+      ).accountsStrict({
+        initializer: initializer.publicKey,
+        mintX: mintX,
+        mintY: mintY,
+        mintLp: mintLp,
+        vaultX: vaultX,
+        vaultY: vaultY,
+        config: configPda,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .signers([initializer])
+      .rpc();
+    
+      console.log("Your transaction signature", tx);
+
+      const configAccount = await program.account.config.fetch(configPda);
+      console.log(configAccount);
+
+      expect(configAccount.authority.toBase58()).to.equal(configPda.toBase58());
+      expect(configAccount.mintX.toBase58()).to.equal(mintX.toBase58());
+      expect(configAccount.mintY.toBase58()).to.equal(mintY.toBase58());
+      expect(configAccount.fee).to.equal(fee);
+      expect(configAccount.locked).to.equal(false);
+      expect(configAccount.configBump).to.equal(configBump);
+      expect(configAccount.lpBump).to.equal(mintLpBump);
+      expect(configAccount.seed.toNumber()).to.equal(seed.toNumber());
+    });
+  })
+
+  describe("Deposit", () => {
+    it("Deposits initial liquidity", async () => {
+      const amountX = 200;
+      const amountY = 200;
+
+      await mintTo(provider.connection, provider.wallet.payer, mintX, userX, minter, amountX * 1e6);
+      await mintTo(provider.connection, provider.wallet.payer, mintY, userY, minter, amountY * 1e6);
+
+    const userLpAccountBefore = await provider.connection.getAccountInfo(userLp);
+    expect(userLpAccountBefore).to.be.null;
+    const userXBalanceBefore = (await provider.connection.getTokenAccountBalance(userX)).value.uiAmount;
+    expect(userXBalanceBefore).to.equal(amountX);
+    const userYBalanceBefore = (await provider.connection.getTokenAccountBalance(userY)).value.uiAmount;
+    expect(userYBalanceBefore).to.equal(amountY);
   
-    console.log("Your transaction signature", tx);
+      const tx = await program.methods.deposit(
+        new anchor.BN(100 * 1e6),
+        new anchor.BN(amountX* 1e6),
+        new anchor.BN(amountY* 1e6),
+      ).accountsStrict({
+        user: user.publicKey,
+        mintX: mintX,
+        mintY: mintY,
+        config: configPda,
+        mintLp: mintLp,
+        vaultX: vaultX,
+        vaultY: vaultY,
+        userX: userX,
+        userY: userY,
+        userLp: userLp,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .signers([user])
+      .rpc();
+      console.log(tx);
 
-    const configAccount = await program.account.config.fetch(configPda);
-    console.log(configAccount);
+    const userLpBalanceAfter = (await provider.connection.getTokenAccountBalance(userLp)).value.uiAmount;
+    expect(userLpBalanceAfter).to.equal(100);
+    const userXBalanceAfter = (await provider.connection.getTokenAccountBalance(userX)).value.uiAmount;
+    expect(userXBalanceAfter).to.equal(0);
+    const userYBalanceAfter = (await provider.connection.getTokenAccountBalance(userY)).value.uiAmount;
+    expect(userYBalanceAfter).to.equal(0);
+    });
 
-    expect(configAccount.authority.toBase58()).to.equal(configPda.toBase58());
-    expect(configAccount.mintX.toBase58()).to.equal(mintX.toBase58());
-    expect(configAccount.mintY.toBase58()).to.equal(mintY.toBase58());
-    expect(configAccount.fee).to.equal(fee);
-    expect(configAccount.locked).to.equal(false);
-    expect(configAccount.configBump).to.equal(configBump);
-    expect(configAccount.lpBump).to.equal(mintLpBump);
-    expect(configAccount.seed.toNumber()).to.equal(seed.toNumber());
+    it("Deposits additional liquidity", async () => {
+      // Second deposit after pool has liquidity
+    });
+    
+    // Optional: More scenarios
+    // it("Fails with insufficient balance", async () => {});
   });
 });
