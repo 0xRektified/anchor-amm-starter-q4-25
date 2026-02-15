@@ -43,14 +43,16 @@ pub struct Withdraw<'info> {
     )]
     pub vault_y: Box<Account<'info, TokenAccount>>,
     #[account(
-        mut,
+        init_if_needed,
+        payer = user,
         associated_token::mint = mint_x,
         associated_token::authority = user,
         associated_token::token_program = token_program,
     )]
     pub user_x: Box<Account<'info, TokenAccount>>,
     #[account(
-        mut,
+        init_if_needed,
+        payer = user,
         associated_token::mint = mint_y,
         associated_token::authority = user,
         associated_token::token_program = token_program,
@@ -78,7 +80,8 @@ impl<'info> Withdraw<'info> {
     ) -> Result<()> {
         require!(self.config.locked == false, AmmError::PoolLocked);
         require!(amount != 0, AmmError::InvalidAmount);
-        
+        require!(min_x != 0 || min_y != 0, AmmError::InvalidAmount);
+
         let mut c = ConstantProduct::init(
             self.vault_x.amount,
             self.vault_y.amount,

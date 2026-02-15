@@ -413,8 +413,8 @@ describe("anchor-amm-q4-25", () => {
 
       expect(userLpBalanceBefore).to.equal(lpSupplyBefore);
 
-      const minX = 0;
-      const minY = 0;
+      const minX = 1;
+      const minY = 1;
 
       await program.methods.withdraw(
         new anchor.BN(userLpBalanceBefore * 1e6),
